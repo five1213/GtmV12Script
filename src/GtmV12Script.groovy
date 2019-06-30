@@ -82,15 +82,6 @@ for (it in params) {
         throw new Exception("${notice}请补全(${label})的WideipLoadBalancingMode信息！")
     }
 
-    wideipLbModeTemp = wideipToLbModeMap.get(label)
-    if(wideipLbModeTemp == null || wideipLbModeTemp == ''){
-        wideipToLbModeMap.put(label,wideipLoadBalancingMode)
-    }else{
-        if(wideipLoadBalancingMode != wideipLbModeTemp){
-            throw new Exception("${notice}请确保(${label})同一个记录类型的wideip中的WideipLoadBalancingMode相同！")
-        }
-    }
-
     if(wideipLoadBalancingMode == 'Global_Availability'){
         wideipLoadBalancingMode = 'global-availability'
     }else if(wideipLoadBalancingMode == 'Ratio'){
@@ -101,6 +92,15 @@ for (it in params) {
         wideipLoadBalancingMode = 'topology'
     }else{
         throw new Exception("${notice}请选择(${label})正确的WideipLoadBalancingMode")
+    }
+
+    wideipLbModeTemp = wideipToLbModeMap.get(label)
+    if(wideipLbModeTemp == null || wideipLbModeTemp == ''){
+        wideipToLbModeMap.put(label,wideipLoadBalancingMode)
+    }else{
+        if(wideipLoadBalancingMode != wideipLbModeTemp){
+            throw new Exception("${notice}请确保(${label})同一个记录类型的wideip中的WideipLoadBalancingMode相同！")
+        }
     }
 
     resolvingOtherDomain = it.'ResolvingOtherDomain'
@@ -302,8 +302,9 @@ for (it in params) {
 
 }
 
-cnameOrMxCli = new StringBuilder()
-cnameOrMxOut = new StringBuilder()
+Map<String,Map<String,String>> cliMap = new HashMap<String,Map<String,String>>()
+Map<String,Map<String,String>> outMap = new HashMap<String,Map<String,String>>()
+
 mapGtm.each { entry ->
     label = entry.key
     splits = label.split(':')
@@ -317,6 +318,10 @@ mapGtm.each { entry ->
     aServerOut = new StringBuilder()
     aaaaServerCli = new StringBuilder()
     aaaaServerOut = new StringBuilder()
+    aOraaaaCli = new StringBuilder()
+    aOraaaaOut = new StringBuilder()
+    cnameOrMxCli = new StringBuilder()
+    cnameOrMxOut = new StringBuilder()
     List<GtmObject> gtmList = entry.value
     gtmList.each { it ->
         region = it.region
@@ -351,26 +356,35 @@ mapGtm.each { entry ->
     }
 
     Map<String,String> retMap = createGtmPoolAndTop(regionMap,ipToServerMap,poolRegionRecordScoreMap,poolRegionRecordLbModeMap)
-
+    Map<String,String> cliTempMap = cliMap.get(deviceName)
+    if(cliTempMap == null || cliMap.isEmpty()){
+        cliTempMap = new HashMap<String,String>()
+    }
+    Map<String,String> outTempMap = outMap.get(deviceName)
+    if(outTempMap == null || outTempMap.isEmpty()){
+        outTempMap = new HashMap<String,String>()
+    }
     poolNames = retMap.get("poolNames")
     if(wideipRecordType == 'a' || wideipRecordType == 'aaaa'){
-        cli << "${label}的${wideipRecordType}记录的命令脚本如下：\n"
-        cli << aServerCli
-        outPut << aServerOut
-        cli << aaaaServerCli
-        outPut << aaaaServerOut
-        cli << retMap.get("gtmAOrAAAAPool")
-        outPut << retMap.get("gtmAOrAAAAPoolOut")
-        cli << retMap.get("gtmCnameOrMxPool")
-        outPut << retMap.get("gtmCnameOrMxPoolOut")
-        cli << retMap.get("aOrAAAATopology")
-        outPut << retMap.get("aOrAAAATopologyOut")
-        cli << retMap.get("cnameOrMxTopology")
-        outPut << retMap.get("cnameOrMxTopologyOut")
+        aOraaaaCli << "${label}的${wideipRecordType}记录的命令脚本如下：\n"
+        aOraaaaCli << aServerCli
+        aOraaaaOut << aServerOut
+        aOraaaaCli << aaaaServerCli
+        aOraaaaOut << aaaaServerOut
+        aOraaaaCli << retMap.get("gtmAOrAAAAPool")
+        aOraaaaOut << retMap.get("gtmAOrAAAAPoolOut")
+        aOraaaaCli << retMap.get("gtmCnameOrMxPool")
+        aOraaaaOut << retMap.get("gtmCnameOrMxPoolOut")
+        aOraaaaCli << retMap.get("aOrAAAATopology")
+        aOraaaaOut << retMap.get("aOrAAAATopologyOut")
+        aOraaaaCli << retMap.get("cnameOrMxTopology")
+        aOraaaaOut << retMap.get("cnameOrMxTopologyOut")
         createWideip = "tmsh create gtm wideip ${wideipRecordType} ${wideip} pool-lb-mode ${wideipLoadBalancingMode} pools add {${poolNames}}"
-        cli << createWideip + "\n"
-        outPut << deviceName + "," + createWideip + "," + "\n"
-        cli << "tmsh save sys config\n\n\n"
+        aOraaaaCli << createWideip + "\n"
+        aOraaaaOut << deviceName + "," + createWideip + "," + "\n"
+        aOraaaaCli << "tmsh save sys config\n\n\n"
+        cliTempMap.put(label,aOraaaaCli)
+        outTempMap.put(label,aOraaaaOut)
     }else if(wideipRecordType == 'cname' || wideipRecordType == 'mx'){
         cnameOrMxCli << "${label}的${wideipRecordType}记录的命令脚本如下：\n"
         cnameOrMxCli << retMap.get("gtmCnameOrMxPool")
@@ -381,8 +395,11 @@ mapGtm.each { entry ->
         cnameOrMxCli << createWideip + "\n"
         cnameOrMxOut << deviceName + "," + createWideip + "," + "\n"
         cnameOrMxCli << "tmsh save sys config\n\n\n"
+        cliTempMap.put(label,cnameOrMxCli)
+        outTempMap.put(label,cnameOrMxOut)
     }
-
+    cliMap.put(deviceName,cliTempMap)
+    outMap.put(deviceName,outTempMap)
     wideipToPoolsMap.put(label,poolNames)
 }
 
@@ -395,20 +412,109 @@ resolvingOtherDomainMap.each { entry ->
     wideipLbMode = gtm.wideipLoadBalancingMode
     resolvingOtherDomain = gtm.getResolvingOtherDomain()
     poolNames = wideipToPoolsMap.get(deviceName+":"+resolvingOtherDomain+":"+wideipRecordType)
+    aOraaaaCli = new StringBuilder()
+    aOraaaaOut = new StringBuilder()
+    cnameOrMxCli = new StringBuilder()
+    cnameOrMxOut = new StringBuilder()
+
+    Map<String,String> cliTempMap = cliMap.get(deviceName)
+    if(cliTempMap == null || cliMap.isEmpty()){
+        cliTempMap = new HashMap<String,String>()
+    }
+    Map<String,String> outTempMap = outMap.get(deviceName)
+    if(outTempMap == null || outTempMap.isEmpty()){
+        outTempMap = new HashMap<String,String>()
+    }
+    labelNew = deviceName + ":" + wideip + ":" + "other"
     if(wideipRecordType == 'a' || wideipRecordType == 'aaaa') {
-        cli << "${label}复用其他域名(${resolvingOtherDomain})的地址池的脚本：\n"
+        aOraaaaCli << "${label}复用其他域名(${resolvingOtherDomain})的地址池的脚本：\n"
         createWideip = "tmsh create gtm wideip ${wideipRecordType} ${wideip} pool-lb-mode ${wideipLbMode} pools add {${poolNames}}"
-        cli << createWideip + "\n"
-        outPut << deviceName + "," + createWideip + "," + "\n"
-        cli << "tmsh save sys config\n\n\n"
+        aOraaaaCli << createWideip + "\n"
+        aOraaaaOut << deviceName + "," + createWideip + "," + "\n"
+        aOraaaaCli << "tmsh save sys config\n\n\n"
+        cliTempMap.put(labelNew,aOraaaaCli)
+        outTempMap.put(labelNew,aOraaaaOut)
     }else if(wideipRecordType == 'cname' || wideipRecordType == 'mx'){
         cnameOrMxCli << "${label}复用其他域名(${resolvingOtherDomain})的地址池的脚本：\n"
         createWideip = "tmsh create gtm wideip ${wideipRecordType} ${wideip} pool-lb-mode ${wideipLbMode} pools add {${poolNames}}"
         cnameOrMxCli << createWideip + "\n"
         cnameOrMxOut << deviceName + "," + createWideip + "," + "\n"
         cnameOrMxCli << "tmsh save sys config\n\n\n"
+        cliTempMap.put(labelNew,cnameOrMxCli)
+        outTempMap.put(labelNew,cnameOrMxOut)
     }
+    cliMap.put(deviceName,cliTempMap)
+    outMap.put(deviceName,outTempMap)
 }
+
+cliMap.each { entry ->
+    deviceName = entry.key
+    Map<String,String> cliTempMap = entry.value
+    acli = new StringBuilder()
+    aaaacli = new StringBuilder()
+    cnamecli = new StringBuilder()
+    mxcli = new StringBuilder()
+    othercli = new StringBuilder()
+    cliTempMap.each { cliEntry ->
+        label = cliEntry.key
+        splits = label.split(':')
+        deviceName = splits[0]
+        wideip = splits[1]
+        wideipRecordType = splits[2]
+        cliTemp = cliEntry.value
+        if(wideipRecordType == "a"){
+            acli << cliTemp
+        }else if(wideipRecordType == "aaaa"){
+            aaaacli <<  cliTemp
+        }else if(wideipRecordType == "cname"){
+            cnamecli << cliTemp
+        }else if(wideipRecordType == "mx"){
+            mxcli << cliTemp
+        }else if(wideipRecordType == "other"){
+            othercli << cliTemp
+        }
+    }
+    cli << acli
+    cli << aaaacli
+    cli << cnamecli
+    cli << mxcli
+    cli << othercli
+}
+
+outMap.each { entry ->
+    deviceName = entry.key
+    Map<String,String> outTempMap = entry.value
+    acli = new StringBuilder()
+    aaaacli = new StringBuilder()
+    cnamecli = new StringBuilder()
+    mxcli = new StringBuilder()
+    othercli = new StringBuilder()
+    outTempMap.each { cliEntry ->
+        label = cliEntry.key
+        splits = label.split(':')
+        deviceName = splits[0]
+        wideip = splits[1]
+        wideipRecordType = splits[2]
+        cliTemp = cliEntry.value
+        if(wideipRecordType == "a"){
+            acli << cliTemp
+        }else if(wideipRecordType == "aaaa"){
+            aaaacli <<  cliTemp
+        }else if(wideipRecordType == "cname"){
+            cnamecli << cliTemp
+        }else if(wideipRecordType == "mx"){
+            mxcli << cliTemp
+        }else if(wideipRecordType == "other"){
+            othercli << cliTemp
+        }
+    }
+    outPut << acli
+    outPut << aaaacli
+    outPut << cnamecli
+    outPut << mxcli
+    outPut << othercli
+}
+
 
 def createGtmPoolAndTop( Map<String,List<GtmObject>> regionMap,Map<String,String> ipToServerMap,HashMap<String,String> poolRegionRecordScoreMap,HashMap<String,String> poolRegionRecordLbModeMap){
     gtmAPool = new StringBuilder()
@@ -540,8 +646,7 @@ def boolean isDomain(String domain){
     return domain ==~ /[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+.?/
 }
 
-cli << cnameOrMxCli
-outPut << cnameOrMxOut
+
 println cli
 
 gCalendar= new GregorianCalendar()
